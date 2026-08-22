@@ -6,6 +6,24 @@ default:
   # restano "stuck" (nessun match). Vedi Settings > CI/CD > Runners del progetto.
   tags: [azure-runner]
   image: python:3.11
+  before_script:
+    # Il GitLab aziendale usa una CA interna che il container python non conosce:
+    # l'upload del wheel falliva con CERTIFICATE_VERIFY_FAILED. Aggiungiamo la CA del
+    # server (se il runner la espone in CI_SERVER_TLS_CA_FILE, o via COMPANY_CA_BUNDLE)
+    # al trust store di sistema -> valido sia per PyPI (pubblica) sia per il GitLab (interna).
+    - |
+      CA="${CI_SERVER_TLS_CA_FILE:-${COMPANY_CA_BUNDLE:-}}"
+      if [ -n "$CA" ] && [ -f "$CA" ]; then
+        echo "CA aziendale trovata: $CA -> aggiunta al trust store"
+        cp "$CA" /usr/local/share/ca-certificates/gitlab-internal-ca.crt
+        update-ca-certificates >/dev/null 2>&1 || true
+        export REQUESTS_CA_BUNDLE=/etc/ssl/certs/ca-certificates.crt
+        export CURL_CA_BUNDLE=/etc/ssl/certs/ca-certificates.crt
+      else
+        echo "ATTENZIONE: nessuna CA interna (CI_SERVER_TLS_CA_FILE/COMPANY_CA_BUNDLE)."
+        echo "Se publish fallisce con CERTIFICATE_VERIFY_FAILED, fornire la CA come"
+        echo "variabile CI di tipo File (COMPANY_CA_BUNDLE) — chiedere al team piattaforma."
+      fi
 
 test:
   stage: test
