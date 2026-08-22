@@ -2,6 +2,9 @@
 stages: [test, build, publish]
 
 default:
+  # Il group runner del subgroup Logistico è taggato "azure-runner": i job senza tag
+  # restano "stuck" (nessun match). Vedi Settings > CI/CD > Runners del progetto.
+  tags: [azure-runner]
   image: python:3.11
 
 test:
