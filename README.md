@@ -4,7 +4,7 @@ Libreria condivisa `logistica_utils` → wheel (GitLab Package Registry).
 
 > **Repo generato** dallo split del monorepo (ADR-0016) via
 > `scripts/split_to_multirepo.py`.
-> Proiezione da monorepo **@e233fdd**.
+> Proiezione da monorepo **@cf73bba**.
 >
 > **Durante la transizione il source of truth è il monorepo**: non modificare
 > questi file a mano finché non avviene il cutover. Al cutover il monorepo viene
