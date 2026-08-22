@@ -40,7 +40,7 @@ build:
     # La versione del wheel deve seguire il TAG di release, non restare quella hardcoded
     # in setup.py: senza questo ogni release ripubblica la stessa versione (collisione nel
     # Package Registry) e il numero non traccia il rilascio. Su tag: allinea setup.py al tag.
-    - if [ -n "$CI_COMMIT_TAG" ]; then sed -i "s/version="[^"]*"/version="${CI_COMMIT_TAG#v}"/" setup.py; fi
+    - if [ -n "$CI_COMMIT_TAG" ]; then V="${CI_COMMIT_TAG#v}"; sed -i 's/version="[^"]*"/version="'"$V"'"/' setup.py; fi
     - python -m build --wheel
   artifacts:
     paths: [dist/*.whl]
