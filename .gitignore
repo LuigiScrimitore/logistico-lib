@@ -1,0 +1,37 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+build/
+dist/
+*.whl
+
+# Virtual env
+.venv/
+venv/
+env/
+
+# Secrets / dati (MAI versionare)
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+terraform.tfvars
+*.tfstate
+*.tfstate.*
+.terraform/
+credentials.json
+
+# Testing
+.pytest_cache/
+.coverage
+coverage.xml
+
+# IDE / OS
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db

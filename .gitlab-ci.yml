@@ -1,0 +1,35 @@
+# logistico-lib — build & publish del wheel logistica_utils nel GitLab Package Registry.
+stages: [test, build, publish]
+
+default:
+  image: python:3.11
+
+test:
+  stage: test
+  script:
+    - pip install -e ".[dev]"
+    - python -c "import logistica_utils; print('import OK:', logistica_utils.__name__)"
+    # NB: gli unit test della lib oggi vivono in logistico-documentation (ADR-0016).
+    #     Valutare se portarne un sottoinsieme qui per un gate autosufficiente.
+
+build:
+  stage: build
+  script:
+    - pip install build
+    - python -m build --wheel
+  artifacts:
+    paths: [dist/*.whl]
+    expire_in: 1 week
+
+publish:
+  stage: publish
+  script:
+    - pip install twine
+    - >
+      TWINE_USERNAME=gitlab-ci-token
+      TWINE_PASSWORD="${CI_JOB_TOKEN}"
+      python -m twine upload
+      --repository-url "${CI_API_V4_URL}/projects/${CI_PROJECT_ID}/packages/pypi"
+      dist/*.whl
+  rules:
+    - if: '$CI_COMMIT_TAG'   # pubblica solo su tag di versione (es. v1.0.0)
