@@ -21,12 +21,14 @@ setup(
     author_email="luigi.scrimitore@aperion.it",
     python_requires=">=3.10",
     packages=find_packages(),
-    install_requires=[
-        "pyspark>=3.5",
-        "delta-spark>=3.0",
-    ],
+    # Runtime Spark/Delta sono FORNITI dall'ambiente Databricks (serverless): NON dichiararli
+    # come dipendenze del wheel, altrimenti il serverless prova a reinstallarli (build lento
+    # + "notebook command received after detach"). Restano in extras per l'uso locale/test.
+    install_requires=[],
     extras_require={
         "dev": [
+            "pyspark>=3.5",
+            "delta-spark>=3.0",
             "pytest>=8.0",
             "pytest-cov>=5.0",
         ]

@@ -170,11 +170,19 @@ def julian_to_date(col: "F.Column", null_if_non_positive: bool = True) -> "F.Col
         # invece di:  F.col("STCAR_DATA_CARICO").cast("date")
         df.withColumn("DATA_CARICO", julian_to_date(F.col("STCAR_DATA_CARICO")))
     """
-    j = col.cast("long")
+    # ANSI-safe (serverless): cast("long") diretto su una stringa non numerica (es. un
+    # timestamp '2026-08-31 08:54:39') LANCIA CAST_INVALID_INPUT invece di dare null. Filtro
+    # prima le sole cifre pure (JDN) -> il cast vede solo numerico o NULL. Le colonne che sono
+    # gia' date/timestamp standard (non-JDN) le parso col fallback. (LL-022 generalizzata)
+    s = col.cast("string")
+    j = F.when(s.rlike(r"^[0-9]+$"), s).cast("long")
     if null_if_non_positive:
         j = F.when(j.isNull() | (j <= 0), None).otherwise(j)
     days_from_epoch = (j - F.lit(_JULIAN_UNIX_EPOCH_OFFSET)).cast("int")
-    return F.date_add(F.lit("1970-01-01").cast("date"), days_from_epoch)
+    jdn_date = F.date_add(F.lit("1970-01-01").cast("date"), days_from_epoch)
+    # Fallback per colonne non-JDN gia' in formato data/timestamp standard.
+    std_date = F.coalesce(F.to_date(s), F.to_date(s, "yyyy-MM-dd HH:mm:ss"), F.to_date(s, "dd/MM/yyyy"))
+    return F.coalesce(jdn_date, std_date)
 
 
 def clean_dat_d(col: "F.Column") -> "F.Column":
@@ -231,32 +239,68 @@ def art_variante(col: "F.Column") -> "F.Column":
 
 def get_sito_alias_map(spark: SparkSession, bronze_schema: str) -> Dict[str, str]:
     """
-    Costruisce la mappa alias-sito alfa -> codice numerico, leggendo TABGEN.
+    Costruisce la mappa alias-sito alfa -> codice numerico canonico.
 
-    Logistix usa codici sito alfa (LGAX, LGCX); il codice canonico e' numerico
-    (LGAX->20, LGCX->57). La corrispondenza e' in TABGEN (tab 7, chiave 1, campo1).
+    Logistix/spedizioni usano codici sito alfa (LGAX, LGCX, 0020A) misti a codici
+    numerici (20, 57); il canonico e' numerico. Sorgenti (in ordine di priorita'):
+
+    1. S_LOGISTIX (anagrafica autoritativa 22 siti) ⋈ WL1_MAG_SITO_STORICO (codice numerico
+       MAG_SITO_COD_ORIG, correnti+attivi: DATFIN_VALID=99999999 AND MAG_SITO_ORIG_ATTIVO=1).
+       Copre TUTTI i siti attivi e produce sia la chiave 4-char (LGAX, da DBLINK_NAME) sia
+       la 5-char (0020A, da MAG_SITO_COD) -> numerico. (ACT_9026)
+    2. Fallback storico: TABGEN (tab 7, chiave 1, campo1) — 5 siti; non sovrascrive (1).
+
+    NB (LL-025): i codici numerici sorgente arrivano come "20"/"20.0" (bronze string/parquet):
+    cast("double").cast("long") prima di stringere le cifre — cast("int") diretto su "20.0"
+    dava null -> mappa vuota -> alias alfa non risolti -> orphan sito a valle.
 
     Args:
         spark: SparkSession attiva.
-        bronze_schema: schema collassato che contiene 'tabgen'
+        bronze_schema: schema collassato con 's_logistix'/'wl1_mag_sito_storico'/'tabgen'
                        (es. "bronze_dev.logistica" o "bronze_dev_logistica").
 
     Returns:
-        dict {SITO_ALFA: SITO_NUM}, es. {"LGAX": "20", "LGCX": "57"}.
-        Vuoto se TABGEN non e' disponibile (la normalizzazione fara' solo lpad).
+        dict {SITO_ALFA_UPPER: SITO_NUM}, es. {"LGAX": "20", "0020A": "20", "LGCX": "57"}.
+        La numerica finale (lpad 2) la applica normalize_sito. Vuoto se nessuna sorgente.
     """
+    def _num_col(c):  # "20"/"20.0"/numeric -> solo cifre (LL-025); lpad lo fa normalize_sito
+        return F.regexp_replace(F.col(c).cast("double").cast("long").cast("string"), r"[^0-9]", "")
+
+    m: Dict[str, str] = {}
+    # 1) Mappa completa da S_LOGISTIX ⋈ WL1 (siti attivi correnti)
+    try:
+        wl1 = (spark.table(f"{bronze_schema}.wl1_mag_sito_storico")
+               .filter((F.col("DATFIN_VALID").cast("double") == 99999999) &
+                       (F.col("MAG_SITO_ORIG_ATTIVO").cast("double") == 1))
+               .select(F.upper(F.trim(F.col("MAG_SITO_COD"))).alias("_ms"),
+                       _num_col("MAG_SITO_COD_ORIG").alias("_num")))
+        slog = (spark.table(f"{bronze_schema}.s_logistix")
+                .select(F.upper(F.trim(F.col("MAG_SITO_COD"))).alias("_ms"),
+                        F.upper(F.regexp_replace(F.trim(F.col("DBLINK_NAME")), r"^LOG_", "")).alias("_alfa4")))
+        for r in slog.join(wl1, "_ms", "inner").collect():
+            num = r["_num"]
+            if not num:
+                continue
+            if r["_ms"]:
+                m[r["_ms"]] = num       # 0020A -> 20
+            if r["_alfa4"]:
+                m[r["_alfa4"]] = num    # LGAX  -> 20
+    except Exception:
+        pass
+    # 2) Fallback/merge TABGEN tab 7 (storico) — non sovrascrive la mappa completa
     try:
         tg = (spark.table(f"{bronze_schema}.tabgen")
               .filter("TGEN_NRO_TAB = 7 AND TGEN_CHIAVE1_TAB = 1 AND TGEN_CAMPO1_TAB IS NOT NULL"))
         rows = (tg.select(
-                    F.col("MAG_SITO_COD").cast("string").alias("alfa"),
-                    F.col("TGEN_CAMPO1_TAB").cast("int").cast("string").alias("num"))
+                    F.upper(F.trim(F.col("MAG_SITO_COD").cast("string"))).alias("alfa"),
+                    _num_col("TGEN_CAMPO1_TAB").alias("num"))
                 .distinct().collect())
-        # chiavi alias normalizzate UPPERCASE: il lookup in normalize_sito e' case-insensitive
-        # (es. _sito_estrazione = "lgax" minuscolo dal path landing).
-        return {r["alfa"].strip().upper(): r["num"] for r in rows if r["alfa"] and r["num"]}
+        for r in rows:
+            if r["alfa"] and r["num"] and r["alfa"] not in m:
+                m[r["alfa"]] = r["num"]
     except Exception:
-        return {}
+        pass
+    return m
 
 
 def normalize_sito(col: "F.Column", alias_map: Optional[Dict[str, str]] = None) -> "F.Column":
