@@ -180,8 +180,13 @@ def julian_to_date(col: "F.Column", null_if_non_positive: bool = True) -> "F.Col
         j = F.when(j.isNull() | (j <= 0), None).otherwise(j)
     days_from_epoch = (j - F.lit(_JULIAN_UNIX_EPOCH_OFFSET)).cast("int")
     jdn_date = F.date_add(F.lit("1970-01-01").cast("date"), days_from_epoch)
-    # Fallback per colonne non-JDN gia' in formato data/timestamp standard.
-    std_date = F.coalesce(F.to_date(s), F.to_date(s, "yyyy-MM-dd HH:mm:ss"), F.to_date(s, "dd/MM/yyyy"))
+    # Fallback per colonne non-JDN gia' in formato data/timestamp standard. Solo per stringhe NON di sole cifre e
+    # con try_to_timestamp: sotto ANSI to_date('0') LANCIA CAST_INVALID_INPUT invece di dare NULL (un '0' = data
+    # assente faceva fallire silver_prep_riepiloghi, worklog 2026-10-16-04).
+    def _try(fmt: str) -> "F.Column":
+        return F.to_date(F.try_to_timestamp(s, F.lit(fmt)))
+    std_date = F.when(~s.rlike(r"^[0-9]+$"),
+                      F.coalesce(_try("yyyy-MM-dd"), _try("yyyy-MM-dd HH:mm:ss"), _try("dd/MM/yyyy")))
     return F.coalesce(jdn_date, std_date)
 
 
