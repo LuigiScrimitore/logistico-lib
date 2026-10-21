@@ -431,7 +431,7 @@ def attach_carico_dimensions(
 
     Assume che ``fact`` esponga le chiavi naturali pre-risoluzione:
     ``ART_RADICE_COD``, ``FORNITORE_COD``, ``SITO_COD``, ``OPERATORE_COD``,
-    ``RICEVITORE_COD``, ``CORRIERE_COD`` (come da ``silver.logistica_curated.carico``).
+    ``RICEVITORE_COD``, ``VETTORE_COD`` (come da ``silver.logistica_curated.carico``).
 
     Args:
         spark: SparkSession attiva.
@@ -453,7 +453,7 @@ def attach_carico_dimensions(
             .withColumn("SITO_COD_NAT",       F.col("SITO_COD"))
             .withColumn("OPERATORE_COD_NAT",  F.col("OPERATORE_COD"))
             .withColumn("RICEVITORE_COD_NAT", F.col("RICEVITORE_COD"))
-            .withColumn("CORRIERE_COD_NAT",   F.col("CORRIERE_COD")))
+            .withColumn("VETTORE_COD_NAT",   F.col("VETTORE_COD")))
 
     # ── Anagrafiche condivise (codice naturale, fallback -1) ────────────────────
     try:
@@ -475,7 +475,7 @@ def attach_carico_dimensions(
         ("SITO_COD",       "LU_SITO",      "SITO_COD"),
         ("OPERATORE_COD",  "LU_OPERATORE", "OPERATORE_COD"),   # operatore validante
         ("RICEVITORE_COD", "LU_OPERATORE", "OPERATORE_COD"),   # operatore ricevente
-        ("CORRIERE_COD",   "LU_CORRIERE",  "CORRIERE_COD"),    # vettore carico inbound
+        ("VETTORE_COD",   "LU_VETTORE",  "VETTORE_COD"),    # vettore carico inbound
     ]
     for fk, lu_tab, lu_pk in logistic_lu:
         try:
