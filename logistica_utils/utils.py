@@ -5,7 +5,7 @@ Contiene helper per gestione date, naming cataloghi, surrogate keys,
 cast di tipo e arricchimento metadati.
 """
 
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional
 
 from pyspark.sql import DataFrame, SparkSession
@@ -786,6 +786,59 @@ def read_landing(spark, path: str, effective_fmt: str):
             .option("sep", ";")
             .option("encoding", "UTF-8")
             .csv(csv_path))
+
+
+# ---------------------------------------------------------------------------
+# Resilienza landing per snapshot FULL (anagrafiche/lookup) — ACT_9034
+# ---------------------------------------------------------------------------
+
+def resolve_landing_snapshot_path(day_path_fn, run_date, dbutils_obj, max_lookback_days: int = 7):
+    """Risolve la cartella-giorno da leggere per uno snapshot FULL (anagrafica/lookup).
+
+    Prova ``run_date``; se quel giorno non ha file (estrazione non consegnata), **retrocede**
+    giorno per giorno fino a ``max_lookback_days`` all'ultimo snapshot disponibile. L'esistenza
+    è verificata con ``dbutils.fs.ls`` PRIMA di qualsiasi ``spark.read``: così non si esegue mai
+    una lettura su path inesistente.
+
+    Perché non basta il ``try/except AnalysisException`` dei notebook (ACT_9034/[[LL-040]]): su
+    **serverless (Spark Connect)** ``[PATH_NOT_FOUND]`` è una ``pyspark.errors`` AnalysisException
+    che NON eredita da ``pyspark.sql.utils.AnalysisException`` → l'except non la cattura e il task
+    FALLISCE invece di uscire ``NO_DATA``. Rilevando l'assenza via ``fs.ls`` si evita del tutto
+    l'eccezione e, in più, si serve l'ultimo snapshot valido (semantica FULL = stato corrente).
+
+    Da usare SOLO per snapshot FULL dove "l'ultimo disponibile vince" è corretto (anagrafiche,
+    lookup). NON per transazionali/SNAPSHOT datati (il fallback al giorno prima sarebbe errato).
+
+    Args:
+        day_path_fn: funzione ``datetime.date -> str`` che costruisce il path della
+            cartella-giorno landing (deve terminare con ``/``, come i ``landing_path()`` esistenti).
+        run_date: data di run in formato ``"YYYY-MM-DD"``.
+        dbutils_obj: riferimento a ``dbutils`` (per ``fs.ls``).
+        max_lookback_days: giorni massimi di retrocessione (default 7). Oltre la finestra si
+            ritorna ``(None, None)`` così l'outage prolungato torna a emergere (NO_DATA/KO).
+
+    Returns:
+        Tupla ``(data_effettiva_str, path)`` dello snapshot da leggere, oppure ``(None, None)``
+        se nessuno snapshot con dati è presente nei ``max_lookback_days`` giorni.
+    """
+    def _has_data(p: str) -> bool:
+        try:
+            for f in dbutils_obj.fs.ls(p):
+                nm = f.name.lower()
+                if nm.endswith(".csv") or nm.endswith(".parquet"):
+                    return True
+        except Exception:
+            # path assente o non elencabile -> nessun dato per quel giorno
+            pass
+        return False
+
+    d0 = datetime.strptime(run_date, "%Y-%m-%d").date()
+    for i in range(int(max_lookback_days) + 1):
+        d = d0 - timedelta(days=i)
+        p = day_path_fn(d)
+        if _has_data(p):
+            return d.strftime("%Y-%m-%d"), p
+    return None, None
 
 
 # ---------------------------------------------------------------------------
