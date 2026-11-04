@@ -177,7 +177,7 @@ ACCEPTANCE_REGISTRY = {
         unique_keys=["SITO_COD", "NUM_DOC_CARICO", "NUM_ETICH", "NUM_BOLLA_FORN"],
         orphan_fks=["SITO_COD", "FORNITORE_COD", "ART_RADICE_COD"],  # CORRIERE escluso (by-design -1)
         orphan_max_pct=0.0,
-        measures_nonneg=["QTA_CARICO", "QTA_UF_CARICO", "PES_CARICO", "VOL_CARICO", "QTA_ORD_FORN"],
+        measures_nonneg=["QTA_CARICO", "QTA_UF_CARICO", "PES_CARICO", "VOL_CARICO"],  # ADR-0029: no QTA_ORD_FORN
         volume_max_dev_pct=30.0,
     ),
     # ── Wave A/C/B/D/E: target aggiunti con ACT_9010 ─────────────────────────
@@ -250,6 +250,6 @@ ACCEPTANCE_REGISTRY = {
         wave="A-agg", min_rows=1,
         not_null=["FORNITORE_COD", "SITO_COD", "ANNO_MESE"],
         unique_keys=["FORNITORE_COD", "SITO_COD", "ANNO_MESE"],
-        measures_nonneg=["QTA_ORDINATA_TOT", "QTA_CARICO_TOT"],  # AMMANCO puo' essere negativo
+        measures_nonneg=["QTA_CARICO_TOT", "QTA_UF_CARICO_TOT"],  # ADR-0029: ordinato/ammanco rimossi
     ),
 }

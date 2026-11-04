@@ -800,7 +800,7 @@ def resolve_landing_snapshot_path(day_path_fn, run_date, dbutils_obj, max_lookba
     è verificata con ``dbutils.fs.ls`` PRIMA di qualsiasi ``spark.read``: così non si esegue mai
     una lettura su path inesistente.
 
-    Perché non basta il ``try/except AnalysisException`` dei notebook (ACT_9034/[[LL-040]]): su
+    Perché non basta il ``try/except AnalysisException`` dei notebook (ACT_9034/LL-021): su
     **serverless (Spark Connect)** ``[PATH_NOT_FOUND]`` è una ``pyspark.errors`` AnalysisException
     che NON eredita da ``pyspark.sql.utils.AnalysisException`` → l'except non la cattura e il task
     FALLISCE invece di uscire ``NO_DATA``. Rilevando l'assenza via ``fs.ls`` si evita del tutto
