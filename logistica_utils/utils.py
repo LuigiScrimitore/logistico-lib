@@ -504,7 +504,7 @@ def attach_carico_peso_volume(
 
         PES_CARICO = CASE WHEN ART_MODL_PES_COD > 1 THEN QTA_UF_CARICO
                           ELSE NVL(ART_UNITA_LOGISTICA_PESO_LORDO,0) * QTA_UF_CARICO END
-        VOL_CARICO = QTA_CARICO * ALT_PZ * LAR_PZ * PRO_PZ / 1000
+        VOL_CARICO = ROUND(QTA_CARICO * ALT_PZ * LAR_PZ * PRO_PZ / 1000, 2)   -- mezzo per eccesso, come CDT_DW
 
     Espone anche ``ART_MODL_PES_COD`` e la FK dimensionale ``ART_VARIANTE_LOGISTICA_ID``.
 
@@ -579,11 +579,14 @@ def attach_carico_peso_volume(
                     F.when(modl > 1, F.col("QTA_UF_CARICO"))
                      .otherwise(F.coalesce(F.col("_ul_peso"), F.lit(0.0)) * F.col("QTA_UF_CARICO"))
                      .cast("double"))
+        # CDT_DW salva il volume a 2 decimali, mezzo per eccesso. Il passaggio a 6 decimali toglie il rumore del double
+        # (0.215 calcolato come 0.21499999… arrotonderebbe a 0.21).
         .withColumn("VOL_CARICO",
-                    (F.col("QTA_CARICO")
-                     * F.coalesce(F.col("_ul_alt"), F.lit(0.0))
-                     * F.coalesce(F.col("_ul_lar"), F.lit(0.0))
-                     * F.coalesce(F.col("_ul_pro"), F.lit(0.0)) / F.lit(1000.0)).cast("double"))
+                    F.round((F.col("QTA_CARICO")
+                             * F.coalesce(F.col("_ul_alt"), F.lit(0.0))
+                             * F.coalesce(F.col("_ul_lar"), F.lit(0.0))
+                             * F.coalesce(F.col("_ul_pro"), F.lit(0.0)) / F.lit(1000.0)).cast("decimal(38,6)"), 2)
+                     .cast("double"))
         .drop("_ul_radice", "_ul_var", "_ul_var_id", "_ul_modl",
               "_ul_peso", "_ul_alt", "_ul_lar", "_ul_pro"))
     return out
